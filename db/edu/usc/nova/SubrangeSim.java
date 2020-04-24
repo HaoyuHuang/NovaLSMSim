@@ -111,7 +111,6 @@ public class SubrangeSim {
 				if (ik.key >= upper) {
 					continue;
 				}
-
 				if (i % sampleInterval != 0) {
 					continue;
 				}
@@ -141,13 +140,6 @@ public class SubrangeSim {
 			TreeMap<Integer, Integer> sortedMap = new TreeMap<>();
 			for (int i = 0; i < memtables.size(); i++) {
 				for (InternalKey ik : memtables.get(i)) {
-					if (ik.key < lower) {
-						continue;
-					}
-					if (ik.key >= upper) {
-						continue;
-					}
-
 					if (samplingRatio > 1 && r.nextInt(samplingRatio) != 0) {
 						continue;
 					}
@@ -276,6 +268,7 @@ public class SubrangeSim {
 		totalNumberOfInsertsSinceLastMajor = 0;
 		subranges.get(0).lower = 0;
 		subranges.get(subranges.size() - 1).upper = numberOfKeys;
+		fixedMinor.clear();
 		return sortedMap.size();
 	}
 
@@ -462,7 +455,6 @@ public class SubrangeSim {
 				other.currentShare = other.numberOfInserts
 						/ totalNumberOfInsertsSinceLastMajor;
 				success = true;
-
 			}
 		}
 		// update upper.
@@ -856,7 +848,7 @@ public class SubrangeSim {
 	}
 
 	public static void main(String[] args) {
-//		run();
+		run();
 
 		dist = args[0];
 		numberOfMemTables = Integer.parseInt(args[1]);
