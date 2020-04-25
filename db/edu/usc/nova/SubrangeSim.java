@@ -268,7 +268,6 @@ public class SubrangeSim {
 		totalNumberOfInsertsSinceLastMajor = 0;
 		subranges.get(0).lower = 0;
 		subranges.get(subranges.size() - 1).upper = numberOfKeys;
-		fixedMinor.clear();
 		return sortedMap.size();
 	}
 
@@ -390,16 +389,25 @@ public class SubrangeSim {
 						(sr.currentShare - fairShare) * 100.0 / fairShare));
 		System.out.println(sr.toString());
 
-		double inserts = (sr.currentShare - fairShare)
+		double totalRemoveInserts = (sr.currentShare - fairShare)
 				* totalNumberOfInsertsSinceLastMajor;
-		assert inserts <= sr.numberOfInserts;
-		double removeShare = (double) (((sr.currentShare - fairShare)
+		assert totalRemoveInserts <= sr.numberOfInserts;
+		double totalRemovePuts = (double) (((sr.currentShare - fairShare)
 				/ sr.currentShare) * sr.ninternalKeys);
-
-		double leftShare = removeShare;
-		double rightShare = removeShare;
-		double leftInserts = inserts;
-		double rightInsert = inserts;
+		
+		
+		double leftPuts = totalRemovePuts;
+		double rightPuts = totalRemovePuts;
+		double leftInserts = totalRemoveInserts;
+		double rightInsert = totalRemoveInserts;
+		
+		double totalRateToDistribute = sr.currentShare - fairShare;
+		double rightRate = 0.0;
+		double leftRate = 0.0;
+		double remainingRate = totalRateToDistribute;
+		
+		double newTotalRightRate = 0;
+		double newTotalLeftRate = 0;
 
 		if (index != 0 && index != subranges.size() - 1) {
 			SubRange left = subranges.get(index - 1);
@@ -407,29 +415,59 @@ public class SubrangeSim {
 
 			if (left.currentShare > fairShare
 					&& right.currentShare < fairShare) {
-				leftShare = 0;
+				double needRate = fairShare - right.currentShare;
+				if (totalRateToDistribute <= needRate) {
+					// give all to right.
+					rightRate = totalRateToDistribute;
+					remainingRate = 0;
+				} else {
+					rightRate = totalRateToDistribute - needRate;
+					remainingRate -= rightRate;
+				}
 			} else if (left.currentShare < fairShare
 					&& right.currentShare > fairShare) {
-				rightShare = 0;
-			} else {
-				double total = left.numberOfInserts + right.numberOfInserts;
-				double leftp = right.numberOfInserts / total;
-				double rightp = left.numberOfInserts / total;
-				System.out.println(leftp + ":" + rightp);
-
-				leftShare = removeShare * leftp;
-				leftInserts = inserts * leftp;
-
-				rightShare = removeShare * rightp;
-				rightInsert = inserts * rightp;
+				double needRate = fairShare - left.currentShare;
+				if (totalRateToDistribute <= needRate) {
+					// give all to left.
+					leftRate = totalRateToDistribute;
+					remainingRate = 0;
+				} else {
+					leftRate = totalRateToDistribute - needRate;
+					remainingRate -= leftRate;
+				}
 			}
+
+			if (remainingRate > 0) {
+				newTotalRightRate = right.currentShare + rightRate;
+				newTotalLeftRate = left.currentShare + leftRate;
+
+				double total = newTotalRightRate + newTotalLeftRate;
+				double leftp = newTotalRightRate / total;
+				double rightp = newTotalLeftRate / total;
+				
+				rightRate += remainingRate * rightp;
+				leftRate += remainingRate * leftp;
+			}
+			
+			assert Math.abs(totalRateToDistribute - rightRate - leftRate) < 0.001 ;
+			
+			double leftRatio = leftRate / totalRateToDistribute;
+			double rightRatio = rightRate / totalRateToDistribute;
+			
+			leftPuts = totalRemovePuts * leftRatio;
+			leftInserts = totalRemoveInserts * leftRatio;
+			
+			rightPuts = totalRemovePuts * rightRatio;
+			rightInsert = totalRemoveInserts * rightRatio;
 		}
+		
+		
 		numberOfPerformedMinor++;
 		boolean success = false;
 		// update lower
-		if (index > 0 && leftShare > 0) {
+		if (index > 0 && leftPuts > 0) {
 			int newLower = sr.lower;
-			double removed_share = leftShare;
+			double removed_share = leftPuts;
 			Set<Integer> removed = Sets.newHashSet();
 			for (Entry<Integer, Integer> entry : samples.entrySet()) {
 				if (removed_share <= 0) {
@@ -458,8 +496,8 @@ public class SubrangeSim {
 			}
 		}
 		// update upper.
-		if (index < subranges.size() - 1 && rightShare > 0) {
-			double removed_share = rightShare;
+		if (index < subranges.size() - 1 && rightPuts > 0) {
+			double removed_share = rightPuts;
 			int newUpper = sr.upper;
 			for (Entry<Integer, Integer> entry : samples.descendingMap()
 					.entrySet()) {
@@ -526,7 +564,6 @@ public class SubrangeSim {
 						subrange.upper = ik.key + 1;
 						subranges.add(subrange);
 					}
-
 				}
 			} else {
 				assert subranges.size() == numberOfSubRanges;
@@ -829,9 +866,9 @@ public class SubrangeSim {
 
 	public static void run() {
 		dist = "uniform";
-		numberOfMemTables = 64;
+		numberOfMemTables = 256;
 		numberOfKeys = 10000000;
-		numberOfSubRanges = 32;
+		numberOfSubRanges = 128;
 		r = new Random(0);
 		enableMinor = true;
 		fairShare = 1.0 / numberOfSubRanges;
@@ -848,7 +885,7 @@ public class SubrangeSim {
 	}
 
 	public static void main(String[] args) {
-		run();
+//		run();
 
 		dist = args[0];
 		numberOfMemTables = Integer.parseInt(args[1]);
