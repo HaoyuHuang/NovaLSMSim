@@ -233,7 +233,6 @@ public class SubrangeSim {
 				minKeys = Math.min(subranges.get(i).keys(), minKeys);
 			}
 		}
-
 		numberOfTotalMajor++;
 		for (int i = 0; i < subranges.size(); i++) {
 			// sample all keys
@@ -255,16 +254,21 @@ public class SubrangeSim {
 		for (Double value : sortedMap.values()) {
 			totalShares += value;
 		}
-		System.out.println(sortedMap.size());
-		if (sortedMap.size() <= subranges.size() * 2) {
+		if (sortedMap.size() <= numberOfSubRanges * 2) {
 			return 0;
 		}
 
-		assert sortedMap.size() > subranges.size() * 2;
+		assert sortedMap.size() > numberOfSubRanges * 2;
 		numberOfPerformedMajor++;
 		last_major_reorg_seq = totalNumberOfInserts;
-		for (int i = 0; i < subranges.size(); i++) {
+
+		for (int i = 0; i < numberOfSubRanges; i++) {
 			fixedMinor.put(i, totalNumberOfInserts);
+		}
+
+		subranges.clear();
+		for (int i = 0; i < numberOfSubRanges; i++) {
+			subranges.add(new SubRange());
 		}
 
 		for (int i = 0; i < subranges.size(); i++) {
@@ -311,15 +315,30 @@ public class SubrangeSim {
 			}
 
 			if (sum + rate > sharePerSubRange) {
-				subranges.get(index).currentShare = sum / total;
-				subranges.get(index).upper = entry.getKey();
-				subranges.get(index + 1).lower = entry.getKey();
-				index++;
-				if (index == subranges.size() - 1) {
-					break;
+				if (subranges.get(index).lower == entry.getKey()) {
+					sum += rate;
+					subranges.get(index).currentShare = sum / total;
+					subranges.get(index).upper = entry.getKey() + 1;
+					subranges.get(index + 1).lower = entry.getKey() + 1;
+					index++;
+					if (index == subranges.size() - 1) {
+						break;
+					}
+					sum = 0;
+					totalShares -= rate;
+					sharePerSubRange = totalShares / (subranges.size() - index);
+					continue;
+				} else {
+					subranges.get(index).currentShare = sum / total;
+					subranges.get(index).upper = entry.getKey();
+					subranges.get(index + 1).lower = entry.getKey();
+					index++;
+					if (index == subranges.size() - 1) {
+						break;
+					}
+					sum = 0;
+					sharePerSubRange = totalShares / (subranges.size() - index);
 				}
-				sum = 0;
-				sharePerSubRange = totalShares / (subranges.size() - index);
 			}
 			sum += rate;
 			totalShares -= rate;
@@ -338,8 +357,8 @@ public class SubrangeSim {
 				sr.upper = sr.lower + 1;
 				priorUpper = sr.upper;
 			}
-			sr.numberOfInserts = 0;// totalNumberOfInserts / subranges.size();
-			sr.currentShare = 0;// sr.numberOfInserts / totalNumberOfInserts;
+			sr.numberOfInserts = 0;
+			sr.currentShare = 0;
 			sr.ninternalKeys = 0;
 		}
 		totalNumberOfInsertsSinceLastMajor = 0;
@@ -354,30 +373,198 @@ public class SubrangeSim {
 
 	public static Map<Integer, Double> fixedMinor = Maps.newHashMap();
 
-	public static boolean minorRebalanceHigherShareDistribute(int index) {
+	public static void moveShare(int index) {
 		SubRange sr = subranges.get(index);
-		double totalRemoveInserts = (sr.currentShare - fairShare)
-				* totalNumberOfInsertsSinceLastMajor;
-		if (totalRemoveInserts < sr.numberOfInserts) {
+		int nDuplicates = 0;
+		int start = -1;
+		int end = -1;
+		for (int i = 0; i < subranges.size(); i++) {
+			if (subranges.get(i).lower != sr.lower) {
+				continue;
+			}
+			end = i;
+			if (start == -1) {
+				start = i;
+			}
+		}
+		nDuplicates = end - start;
+		double share = sr.numberOfInserts / nDuplicates;
+		for (int i = start; i <= end; i++) {
+			if (nDuplicates == 1) {
+				subranges.get(i).duplicatedRange = false;
+			}
+			subranges.get(i).numberOfInserts += share;
+			subranges.get(i).currentShare = subranges.get(i).numberOfInserts
+					/ totalNumberOfInsertsSinceLastMajor;
+		}
+	}
+
+	public static boolean destroyDuplicates(int index) {
+		SubRange sr = subranges.get(index);
+		if (!sr.duplicatedRange) {
 			return false;
 		}
 
-		assert sr.currentShare > fairShare;
-		sr.ninternalKeys = 0;
-		fixedMinor.put(index, totalNumberOfInserts);
-		for (int i = 0; i < subranges.size(); i++) {
-			fixedMinor.put(i, totalNumberOfInserts);
-		}
-
-		// Distribute the load across adjacent subranges.
-		// higher share.
-		TreeMap<Integer, Integer> samples = sr.sampleKeys();
-		if (samples.size() < 100 || sr.ninternalKeys > sr.numberOfInserts) {
-			sr.ninternalKeys = 0;
+		double percent = sr.currentShare / fairShare;
+		if (percent >= 0.5) {
 			return false;
 		}
 
 		numberOfTotalMinor++;
+		last_minor_reorg_seq = totalNumberOfInserts;
+		numberOfPerformedMinor++;
+
+		for (int i = 0; i < numberOfSubRanges; i++) {
+			fixedMinor.put(i, totalNumberOfInserts);
+		}
+
+		System.out.println("Destroy subrange " + index);
+		// destroy this duplicate.
+		moveShare(index);
+		subranges.remove(index);
+		return true;
+	}
+
+	public static boolean minorRebalanceDuplicate(int index) {
+		SubRange sr = subranges.get(index);
+		assert sr.currentShare > fairShare;
+		sr.ninternalKeys = 0;
+		if (sr.upper - sr.lower != 1) {
+			return false;
+		}
+
+		int nDuplicates = (int) Math.floor(sr.currentShare / fairShare);
+		if (nDuplicates == 0) {
+			return false;
+		}
+
+		numberOfTotalMinor++;
+		last_minor_reorg_seq = totalNumberOfInserts;
+		numberOfPerformedMinor++;
+
+		for (int i = 0; i < numberOfSubRanges; i++) {
+			fixedMinor.put(i, totalNumberOfInserts);
+		}
+
+		sr.duplicatedRange = true;
+		double remainingSum = sr.numberOfInserts;
+		for (int i = 0; i < nDuplicates; i++) {
+			SubRange newSR = new SubRange();
+			newSR.lower = sr.lower;
+			newSR.upper = sr.upper;
+			newSR.numberOfInserts = sr.numberOfInserts / (nDuplicates + 1);
+			remainingSum -= newSR.numberOfInserts;
+			newSR.currentShare = newSR.numberOfInserts
+					/ totalNumberOfInsertsSinceLastMajor;
+			newSR.duplicatedRange = true;
+			subranges.add(index, newSR);
+		}
+		sr.numberOfInserts = remainingSum;
+		sr.currentShare = sr.numberOfInserts
+				/ totalNumberOfInsertsSinceLastMajor;
+//		
+//		if (index == 18) {
+//			printRanges("debug");
+//			System.out.println();
+//		}
+//		
+		while (subranges.size() > numberOfSubRanges) {
+			// remove min.
+			double minShare = Double.MAX_VALUE;
+			int minRangeId = 0;
+			for (int i = 0; i < subranges.size(); i++) {
+				SubRange minSR = subranges.get(i);
+				// Skip the new subranges.
+				if (minSR.lower == sr.lower) {
+					continue;
+				}
+//				if (minSR.duplicatedRange) {
+//					continue;
+//				}
+				if (minSR.currentShare < minShare) {
+					minShare = minSR.currentShare;
+					minRangeId = i;
+				}
+			}
+
+			// merge min with neighboring subrange.
+			int left = minRangeId - 1;
+			int right = minRangeId + 1;
+			boolean mergeLeft = true;
+			if (left >= 0 && right < subranges.size()) {
+				if (subranges.get(left).currentShare < subranges
+						.get(right).currentShare) {
+					mergeLeft = true;
+				} else {
+					mergeLeft = false;
+				}
+			} else if (left >= 0) {
+				mergeLeft = true;
+			} else {
+				mergeLeft = false;
+			}
+			SubRange minSR = subranges.get(minRangeId);
+			if (mergeLeft) {
+				SubRange l = subranges.get(left);
+				if (l.duplicatedRange) {
+					// move its shares to other duplicates.
+					moveShare(left);
+					// destroy this subrange.
+					subranges.remove(left);
+				} else {
+					l.currentShare += minSR.currentShare;
+					l.numberOfInserts += minSR.numberOfInserts;
+					l.upper = minSR.upper;
+					subranges.remove(minRangeId);
+				}
+			} else {
+				SubRange r = subranges.get(right);
+				if (r.duplicatedRange) {
+					// move its shares to other duplicates.
+					moveShare(right);
+					// destroy this subrange.
+					subranges.remove(right);
+				} else {
+					r.currentShare += minSR.currentShare;
+					r.numberOfInserts += minSR.numberOfInserts;
+					r.lower = minSR.lower;
+					subranges.remove(minRangeId);
+				}
+			}
+		}
+//		printRanges("minor duplicate subrange-" + index);
+		return true;
+	}
+	
+
+	public static boolean minorRebalanceHigherShareDistribute(int index) {
+		SubRange sr = subranges.get(index);
+		double totalRemoveInserts = (sr.currentShare - fairShare)
+				* totalNumberOfInsertsSinceLastMajor;
+
+		if (totalRemoveInserts >= sr.numberOfInserts) {
+			return false;
+		}
+
+		if (minorRebalanceDuplicate(index)) {
+			return true;
+		}
+
+		assert sr.currentShare > fairShare;
+		sr.ninternalKeys = 0;
+		for (int i = 0; i < numberOfSubRanges; i++) {
+			fixedMinor.put(i, totalNumberOfInserts);
+		}
+		// Distribute the load across adjacent subranges.
+		// higher share.
+		numberOfTotalMinor++;
+		TreeMap<Integer, Integer> samples = sr.sampleKeys();
+		if (samples.size() <= 1 || sr.ninternalKeys < 1000
+				|| sr.ninternalKeys > sr.numberOfInserts) {
+			sr.ninternalKeys = 0;
+			return false;
+		}
+
 		last_minor_reorg_seq = totalNumberOfInserts;
 		System.out.println(
 				String.format("!!!!!!minor-%d-%d-%.2f", index, samples.size(),
@@ -512,7 +699,7 @@ public class SubrangeSim {
 			}
 		}
 		System.out.println("after-" + sr.toString());
-		return false;
+		return success;
 	}
 
 	public static double num_iteration_grow = 0;
@@ -614,23 +801,33 @@ public class SubrangeSim {
 		double unfairRanges = 0;
 		int mostUnfairRange = -1;
 		double mostUnfair = 0;
-		for (int i = 0; i < numberOfSubRanges; i++) {
+		for (int i = 0; i < subranges.size(); i++) {
 			SubRange sr = subranges.get(i);
 			double diff = (sr.currentShare - fairShare) * 100.0 / fairShare;
 			if (Math.abs(diff) > 20 && sr.upper - sr.lower > 1) {
 				unfairRanges += 1;
 			}
 
-			if (diff > 20 && sr.upper - sr.lower > 1
+			if (diff > 20
 					&& totalNumberOfInserts
 							- fixedMinor.get(i) > minor_reorg_interval
 					&& sr.numberOfInserts > minor_reorg_interval
 							/ subranges.size()) {
-				if (diff > mostUnfair && !sr.duplicatedRange) {
+				if (diff > mostUnfair) {
 					mostUnfairRange = i;
 					mostUnfair = diff;
 				}
 			}
+
+			if (totalNumberOfInserts - fixedMinor.get(i) > minor_reorg_interval
+					&& sr.numberOfInserts > minor_reorg_interval
+							/ subranges.size()) {
+				if (destroyDuplicates(i)) {
+					mostUnfairRange = -1;
+					mostUnfair = -1;
+				}
+			}
+
 		}
 		String prefix = "";
 		if (unfairRanges / (double) (numberOfSubRanges) > 0.1) {
@@ -648,6 +845,7 @@ public class SubrangeSim {
 				}
 				return;
 			}
+			printRanges(prefix);
 		} else if (enableMinor && mostUnfairRange != -1) {
 			prefix = "minor-" + mostUnfairRange + ":";
 			if (!minorRebalanceHigherShareDistribute(mostUnfairRange)) {
@@ -661,7 +859,6 @@ public class SubrangeSim {
 			subranges.get(i).cumulativeNumberOfInserts = 0;
 			history.get(i).cumulativeNumberOfInserts = 0;
 		}
-		printRanges(prefix);
 	}
 
 	public static boolean enableMinor = true;
@@ -886,14 +1083,14 @@ public class SubrangeSim {
 
 	public static void run() {
 		dist = "zipfian";
-		numberOfMemTables = 256;
+		numberOfMemTables = 64;
 		numberOfKeys = 10000000;
-		numberOfSubRanges = 128;
+		numberOfSubRanges = 32;
 		r = new Random(0);
 		enableMinor = true;
 		fairShare = 1.0 / numberOfSubRanges;
 		samplingRatio = 1;
-		iterations = 100000000;
+		iterations = 10000000;
 
 		NumberGenerator gen = null;
 		if ("zipfian".equals(dist)) {
