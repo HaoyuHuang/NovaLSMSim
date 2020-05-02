@@ -38,6 +38,7 @@ public class SubrangeSim {
 	public static int numberOfTotalMinor = 0;
 	public static int numberOfPerformedMajor = 0;
 	public static int numberOfPerformedMinor = 0;
+	public static int numberOfPerformedMinorDup = 0;
 
 	public static class InternalKey {
 		int key;
@@ -283,9 +284,7 @@ public class SubrangeSim {
 		double sum = 0;
 		subranges.get(0).lower = 0;
 		subranges.get(subranges.size() - 1).upper = numberOfKeys;
-		boolean duplicateRange = false;
 		for (Entry<Integer, Double> entry : sortedMap.entrySet()) {
-			duplicateRange = false;
 			double rate = entry.getValue();
 			if (rate >= fairShare) {
 				System.out.println(String.format("hot key %d:%.2f:%.2f",
@@ -293,25 +292,21 @@ public class SubrangeSim {
 				// close the current subrange.
 				if (subranges.get(index).lower < entry.getKey()) {
 					subranges.get(index).upper = entry.getKey();
-					subranges.get(index + 1).lower = entry.getKey();
 					index++;
 				}
 
 				int nDuplicates = (int) Math.ceil(rate / fairShare);
 				for (int i = 0; i < nDuplicates; i++) {
 					subranges.get(index).duplicatedRange = true;
-
+					subranges.get(index).lower = entry.getKey();
 					subranges.get(index).upper = entry.getKey() + 1;
-					subranges.get(index + 1).lower = entry.getKey();
 					index++;
 				}
-				duplicateRange = true;
+				subranges.get(index).lower = entry.getKey() + 1;
 				totalShares -= entry.getValue();
+				sum = 0;
+				sharePerSubRange = totalShares / (subranges.size() - index);
 				continue;
-			}
-
-			if (duplicateRange) {
-				subranges.get(index).duplicatedRange = duplicateRange;
 			}
 
 			if (sum + rate > sharePerSubRange) {
@@ -410,9 +405,10 @@ public class SubrangeSim {
 			return false;
 		}
 
-		numberOfTotalMinor++;
+//		numberOfTotalMinor++;
 		last_minor_reorg_seq = totalNumberOfInserts;
-		numberOfPerformedMinor++;
+//		numberOfPerformedMinor++;
+		numberOfPerformedMinorDup++;
 
 		for (int i = 0; i < numberOfSubRanges; i++) {
 			fixedMinor.put(i, totalNumberOfInserts);
@@ -438,9 +434,8 @@ public class SubrangeSim {
 			return false;
 		}
 
-		numberOfTotalMinor++;
 		last_minor_reorg_seq = totalNumberOfInserts;
-		numberOfPerformedMinor++;
+		numberOfPerformedMinorDup++;
 
 		for (int i = 0; i < numberOfSubRanges; i++) {
 			fixedMinor.put(i, totalNumberOfInserts);
@@ -462,8 +457,8 @@ public class SubrangeSim {
 		sr.numberOfInserts = remainingSum;
 		sr.currentShare = sr.numberOfInserts
 				/ totalNumberOfInsertsSinceLastMajor;
-//		
-//		if (index == 18) {
+
+		// if (index == 18) {
 //			printRanges("debug");
 //			System.out.println();
 //		}
@@ -532,10 +527,9 @@ public class SubrangeSim {
 				}
 			}
 		}
-//		printRanges("minor duplicate subrange-" + index);
+		printRanges("minor duplicate subrange-" + index);
 		return true;
 	}
-	
 
 	public static boolean minorRebalanceHigherShareDistribute(int index) {
 		SubRange sr = subranges.get(index);
@@ -587,7 +581,9 @@ public class SubrangeSim {
 		double newTotalRightRate = 0;
 		double newTotalLeftRate = 0;
 
-		if (index != 0 && index != subranges.size() - 1) {
+		if (index != 0 && index != subranges.size() - 1
+				&& !subranges.get(index - 1).duplicatedRange
+				&& !subranges.get(index + 1).duplicatedRange) {
 			SubRange left = subranges.get(index - 1);
 			SubRange right = subranges.get(index + 1);
 
@@ -638,21 +634,32 @@ public class SubrangeSim {
 
 			rightPuts = totalRemovePuts * rightRatio;
 			rightInsert = totalRemoveInserts * rightRatio;
+
+			if (leftPuts < samples.firstEntry().getValue()
+					&& rightPuts < samples.lastEntry().getValue()) {
+				// cannot move either to left or right.
+				// move to right.
+				rightPuts = samples.lastEntry().getValue();
+
+				rightInsert += leftInserts;
+				leftPuts = 0;
+				leftInserts = 0;
+			}
 		}
 
-		numberOfPerformedMinor++;
 		boolean success = false;
 		// update lower
-		if (index > 0 && leftPuts > 0) {
+		if (index > 0 && leftPuts > 0
+				&& !subranges.get(index - 1).duplicatedRange) {
 			int newLower = sr.lower;
 			double removed_share = leftPuts;
 			Set<Integer> removed = Sets.newHashSet();
 			for (Entry<Integer, Integer> entry : samples.entrySet()) {
-				if (removed_share <= 0) {
+				if (removed_share - entry.getValue() < 0) {
 					break;
 				}
-				removed_share -= entry.getValue();
 				newLower = entry.getKey();
+				removed_share -= entry.getValue();
 				removed.add(entry.getKey());
 			}
 
@@ -674,19 +681,20 @@ public class SubrangeSim {
 			}
 		}
 		// update upper.
-		if (index < subranges.size() - 1 && rightPuts > 0) {
+		if (index < subranges.size() - 1 && rightPuts > 0
+				&& !subranges.get(index + 1).duplicatedRange) {
 			double removed_share = rightPuts;
 			int newUpper = sr.upper;
 			for (Entry<Integer, Integer> entry : samples.descendingMap()
 					.entrySet()) {
-				if (removed_share <= 0) {
+				if (removed_share - entry.getValue() < 0) {
 					break;
 				}
-				removed_share -= entry.getValue();
 				newUpper = entry.getKey();
+				removed_share -= entry.getValue();
 			}
-			if (newUpper < sr.upper) {
-				sr.upper = newUpper + 1;
+			if (newUpper < sr.upper && newUpper - sr.lower >= 1) {
+				sr.upper = newUpper;
 				sr.numberOfInserts -= rightInsert;
 				sr.currentShare = sr.numberOfInserts
 						/ totalNumberOfInsertsSinceLastMajor;
@@ -698,7 +706,10 @@ public class SubrangeSim {
 				success = true;
 			}
 		}
-		System.out.println("after-" + sr.toString());
+		if (success) {
+			numberOfPerformedMinor++;
+			System.out.println("after-" + sr.toString());
+		}
 		return success;
 	}
 
@@ -909,12 +920,14 @@ public class SubrangeSim {
 		double last_minor_percent = ((double) last_minor_reorg_seq
 				/ (double) iterations) * 100.0;
 
-		System.out.println(String.format("reorg,%d,%d,%d,%d,%.2f,%.2f,%d,%.2f",
-				numberOfPerformedMajor,
-				numberOfTotalMajor - numberOfPerformedMajor,
-				numberOfPerformedMinor,
-				numberOfTotalMinor - numberOfPerformedMinor, last_major_percent,
-				last_minor_percent, (int) num_iteration_grow, diff));
+		System.out
+				.println(String.format("reorg,%d,%d,%d,%d,%d,%.2f,%.2f,%d,%.2f",
+						numberOfPerformedMajor,
+						numberOfTotalMajor - numberOfPerformedMajor,
+						numberOfPerformedMinor,
+						numberOfTotalMinor - numberOfPerformedMinor,
+						numberOfPerformedMinorDup, last_major_percent,
+						last_minor_percent, (int) num_iteration_grow, diff));
 	}
 
 	public static final String ZIPFIAN_FILE = "/tmp/zipfian";
