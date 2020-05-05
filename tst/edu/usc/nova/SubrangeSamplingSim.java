@@ -9,7 +9,6 @@ import java.util.List;
 import java.util.Map.Entry;
 import java.util.Random;
 import java.util.TreeMap;
-import java.util.TreeSet;
 
 import com.google.common.collect.Lists;
 
@@ -17,6 +16,7 @@ import edu.usc.distributions.NumberGenerator;
 import edu.usc.distributions.UniformGenerator;
 import edu.usc.distributions.ZipfianGenerator;
 
+@Deprecated
 public class SubrangeSamplingSim {
 	public static int numberOfMemTables;
 	public static int numberOfKeys;
