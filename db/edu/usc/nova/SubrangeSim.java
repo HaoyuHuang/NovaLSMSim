@@ -49,11 +49,10 @@ public class SubrangeSim {
 				double diff = (load - fair) * 100.0;
 				stdev += Math.pow(diff, 2);
 			}
-
 			assert Math.abs(sum - 1.0) <= 0.01;
 			metric.maximum_diff_percent = (highest_load - fair) * 100.0 / fair;
-			metric.standard_deviation = Math
-					.sqrt(stdev / (double) loads.size());
+			metric.standard_deviation = Math.sqrt(stdev / (double) loads.size())
+					/ 100.0;
 			return metric;
 		}
 
@@ -613,11 +612,11 @@ public class SubrangeSim {
 			sr.ninternalKeys = 0;
 			return false;
 		}
-		
+
 		if (index == 11) {
 			System.out.println();
 		}
-		
+
 		System.out.println(
 				String.format("!!!!!!minor-%d-%d-%.2f", index, samples.size(),
 						(sr.currentShare - fairShare) * 100.0 / fairShare));
@@ -726,7 +725,7 @@ public class SubrangeSim {
 			removed.forEach(k -> {
 				samples.remove(k);
 			});
-			
+
 			if (!removed.isEmpty()) {
 				newLower = nextLower;
 			}
