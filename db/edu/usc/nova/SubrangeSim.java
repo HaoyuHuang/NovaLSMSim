@@ -29,7 +29,7 @@ public class SubrangeSim {
 
 		@Override
 		public String toString() {
-			return String.format("%.2f,%.2f", maximum_diff_percent,
+			return String.format("%.2f,%.8f", maximum_diff_percent,
 					standard_deviation);
 		}
 
