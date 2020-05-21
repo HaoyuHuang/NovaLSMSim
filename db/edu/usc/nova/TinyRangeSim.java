@@ -73,6 +73,7 @@ public class TinyRangeSim {
 	public static int numberOfTotalMinor = 0;
 	public static int numberOfPerformedMajor = 0;
 	public static int numberOfPerformedMinor = 0;
+	public static int numberOfPerformedMinorSampling = 0;
 	public static int numberOfPerformedMinorDup = 0;
 
 	public static class InternalKey {
@@ -114,6 +115,11 @@ public class TinyRangeSim {
 		public int byteSize() {
 			return String.valueOf(lower).length()
 					+ String.valueOf(upper).length() + 8 + 8 + 8;
+		}
+
+		public void reset() {
+			numberOfInserts = 0;
+			currentShare = 0;
 		}
 
 		@Override
@@ -166,20 +172,21 @@ public class TinyRangeSim {
 					sr.upper() - sr.lower()));
 			builder.append(" tiny:");
 			for (int j = 0; j < sr.tinyRanges.size(); j++) {
-				builder.append(
-						String.format("[%d,%d),", sr.tinyRanges.get(j).lower,
-								sr.tinyRanges.get(j).upper));
+				builder.append(String.format("%d:[%d,%d),",
+						sr.tinyRanges.get(j).upper - sr.tinyRanges.get(j).lower,
+						sr.tinyRanges.get(j).lower,
+						sr.tinyRanges.get(j).upper));
 			}
 			builder = builder.deleteCharAt(builder.length() - 1);
 			return builder.toString();
 		}
-		
+
 		public void clearPriorOnPushLeft() {
 			for (int i = 0; i < tinyRanges.size() - 1; i++) {
 				tinyRanges.get(i).priorSubrangeId = -1;
 			}
 		}
-		
+
 		public void clearPriorOnPushRight() {
 			for (int i = 1; i < tinyRanges.size(); i++) {
 				tinyRanges.get(i).priorSubrangeId = -1;
@@ -479,6 +486,9 @@ public class TinyRangeSim {
 		// range.
 		List<Range> tmp_subranges = constructRanges(userkeyFreqMap, totalShares,
 				0, numberOfKeys, numberOfSubRanges, true);
+		tmp_subranges.forEach(r -> {
+			r.reset();
+		});
 		// Second, break each subrange that contains more than one value into
 		// alpha tiny ranges.
 		for (int i = 0; i < tmp_subranges.size(); i++) {
@@ -500,6 +510,9 @@ public class TinyRangeSim {
 				}
 				tinyRanges = constructRanges(subUserkeyFreqMap, subTotalShare,
 						lower, upper, numberOfTinyRangesPerSubRange, false);
+				tinyRanges.forEach(r -> {
+					r.reset();
+				});
 			}
 
 			SubRange sr = new SubRange();
@@ -520,7 +533,7 @@ public class TinyRangeSim {
 		double sharePerSubRange = totalShares / numberOfRanges;
 		double fairShare = totalShares / numberOfRanges;
 		double total = totalShares;
-		double sum = 0;
+		double currentRate = 0;
 
 		Range currentRange = new Range();
 		currentRange.lower = lower;
@@ -535,6 +548,7 @@ public class TinyRangeSim {
 				// close the current subrange.
 				if (currentRange.lower < entry.getKey()) {
 					currentRange.upper = entry.getKey();
+					currentRange.currentShare = currentRate / total;
 					tmp_subranges.add(currentRange);
 					currentRange = new Range();
 				}
@@ -544,23 +558,25 @@ public class TinyRangeSim {
 					currentRange.duplicatedRange = true;
 					currentRange.lower = entry.getKey();
 					currentRange.upper = entry.getKey() + 1;
+					currentRange.currentShare = (rate / nDuplicates) / total;
 					tmp_subranges.add(currentRange);
 					currentRange = new Range();
 
 				}
 				currentRange.lower = entry.getKey() + 1;
 				totalShares -= entry.getValue();
-				sum = 0;
+				currentRate = 0;
 				sharePerSubRange = totalShares
 						/ (numberOfRanges - tmp_subranges.size());
 				continue;
 			}
 
-			if (sum + rate > sharePerSubRange) {
+			if (currentRate + rate > sharePerSubRange) {
 				if (currentRange.lower == entry.getKey()) {
-					sum += rate;
-					currentRange.currentShare = sum / total;
+					currentRate += rate;
+					currentRange.currentShare = currentRate / total;
 					currentRange.upper = entry.getKey() + 1;
+					currentRange.currentShare = currentRate / total;
 					tmp_subranges.add(currentRange);
 					currentRange = new Range();
 
@@ -568,13 +584,13 @@ public class TinyRangeSim {
 					if (tmp_subranges.size() + 1 == numberOfRanges) {
 						break;
 					}
-					sum = 0;
+					currentRate = 0;
 					totalShares -= rate;
 					sharePerSubRange = totalShares
 							/ (numberOfRanges - tmp_subranges.size());
 					continue;
 				} else {
-					currentRange.currentShare = sum / total;
+					currentRange.currentShare = currentRate / total;
 					currentRange.upper = entry.getKey();
 
 					tmp_subranges.add(currentRange);
@@ -584,20 +600,22 @@ public class TinyRangeSim {
 					if (tmp_subranges.size() + 1 == numberOfRanges) {
 						break;
 					}
-					sum = 0;
+					currentRate = 0;
 					sharePerSubRange = totalShares
 							/ (numberOfRanges - tmp_subranges.size());
 				}
 			}
-			sum += rate;
+			currentRate += rate;
 			totalShares -= rate;
 		}
 
 		if (isConstructingSubRanges) {
+			currentRange.currentShare = currentRate / total;
 			tmp_subranges.add(currentRange);
 			assert tmp_subranges.size() == numberOfRanges;
 		} else {
 			if (currentRange.lower < upper) {
+				currentRange.currentShare = currentRate / total;
 				tmp_subranges.add(currentRange);
 			}
 			assert tmp_subranges.size() <= numberOfRanges;
@@ -605,22 +623,6 @@ public class TinyRangeSim {
 
 		tmp_subranges.get(0).lower = lower;
 		tmp_subranges.get(tmp_subranges.size() - 1).upper = upper;
-
-		int priorUpper = -1;
-		for (int i = 0; i < tmp_subranges.size(); i++) {
-			Range sr = tmp_subranges.get(i);
-			if (priorUpper != -1 && priorUpper - sr.lower > 1) {
-				assert sr.lower > priorUpper;
-				if (sr.lower < priorUpper) {
-					sr.lower = priorUpper;
-				}
-			}
-			if (sr.upper <= sr.lower) {
-				priorUpper = sr.upper;
-			}
-			sr.numberOfInserts = 0;
-			sr.currentShare = 0;
-		}
 		return tmp_subranges;
 	}
 
@@ -971,16 +973,72 @@ public class TinyRangeSim {
 		numberOfTotalMinor++;
 
 		SubRange sr = subranges.get(index);
-		if (sr.currentShare() > fairShare) {
-			if (minorRebalancePush(index)) {
-				numberOfPerformedMinor++;
+		assert sr.currentShare() > fairShare;
+
+		if (sr.upper() - sr.lower() > 100 && sr.tinyRanges.size() > 1) {
+			double unfairTinyRanges = 0;
+			double fair_share = 1.0 / sr.tinyRanges.size();
+			for (int i = 0; i < sr.tinyRanges.size(); i++) {
+				Range r = sr.tinyRanges.get(i);
+				double diff = (r.currentShare - fair_share) * 100.0
+						/ fair_share;
+				if (Math.abs(diff) > 20) {
+					unfairTinyRanges += 1;
+				}
 			}
-			return;
+
+			if (unfairTinyRanges / sr.tinyRanges.size() > 0.1) {
+				double beforeShare = sr.currentShare();
+				double beforeInserts = sr.numberOfInserts();
+				numberOfPerformedMinorSampling++;
+				TreeMap<Integer, Integer> map = sr.sampleKeys(1);
+				TreeMap<Integer, Double> userkeyFreqMap = Maps.newTreeMap();
+				double insertionRatio = sr.currentShare();
+				double totalShare = 0.0;
+				for (Entry<Integer, Integer> entry : map.entrySet()) {
+					userkeyFreqMap.put(entry.getKey(),
+							entry.getValue().doubleValue() * insertionRatio);
+					totalShare += entry.getValue().doubleValue()
+							* insertionRatio;
+				}
+
+				if (userkeyFreqMap.size() > numberOfTinyRangesPerSubRange * 2) {
+					List<Range> ranges = constructRanges(userkeyFreqMap,
+							totalShare, sr.lower(), sr.upper(),
+							numberOfTinyRangesPerSubRange, false);
+					double sum = 0;
+					for (int i = 0; i < ranges.size(); i++) {
+						Range r = ranges.get(i);
+						r.numberOfInserts = r.currentShare * beforeInserts;
+						sum += r.numberOfInserts;
+					}
+					ranges.get(
+							ranges.size() - 1).numberOfInserts += beforeInserts
+									- sum;
+					for (int i = 0; i < ranges.size(); i++) {
+						Range r = ranges.get(i);
+						r.currentShare = r.numberOfInserts
+								/ totalNumberOfInsertsSinceLastMajor;
+					}
+
+					ranges.get(0).priorSubrangeId = sr.tinyRanges
+							.get(0).priorSubrangeId;
+					ranges.get(ranges.size()
+							- 1).priorSubrangeId = sr.tinyRanges.get(
+									sr.tinyRanges.size() - 1).priorSubrangeId;
+
+					sr.tinyRanges.clear();
+					sr.tinyRanges.addAll(ranges);
+					assert Math
+							.abs(beforeInserts - sr.numberOfInserts()) < 0.01;
+					assert Math.abs(beforeShare - sr.currentShare()) < 0.01;
+				}
+			}
 		}
-		if (minorRebalancePull(index)) {
+
+		if (minorRebalancePush(index)) {
 			numberOfPerformedMinor++;
 		}
-		return;
 	}
 
 	public static boolean minorRebalancePush(int index) {
@@ -1312,10 +1370,10 @@ public class TinyRangeSim {
 		}
 
 		System.out.println(String.format(
-				"reorg,%d,%d,%d,%d,%d,%.2f,%.2f,%d,%s,%f,%f",
+				"reorg,%d,%d,%d,%d,%d,%d,%.2f,%.2f,%d,%s,%f,%f",
 				numberOfPerformedMajor,
 				numberOfTotalMajor - numberOfPerformedMajor,
-				numberOfPerformedMinor,
+				numberOfPerformedMinor, numberOfPerformedMinorSampling,
 				numberOfTotalMinor - numberOfPerformedMinor,
 				numberOfPerformedMinorDup, last_major_percent,
 				last_minor_percent, (int) num_iteration_grow, diff.toString(),
@@ -1451,7 +1509,7 @@ public class TinyRangeSim {
 	public static List<SubRange> history = Lists.newArrayList();
 
 	public static void run() {
-		dist = "zipfian";
+		dist = "uniform";
 		numberOfMemTables = 256;
 		numberOfKeys = 10000000;
 		numberOfSubRanges = 128;
@@ -1481,8 +1539,8 @@ public class TinyRangeSim {
 		iterations = Long.parseLong(args[4]);
 		samplingRatio = Integer.parseInt(args[5]);
 		enableMinor = Boolean.parseBoolean(args[6]);
-
-		r = new Random(0);
+		long seed = Long.parseLong(args[7]);
+		r = new Random(seed);
 		fairShare = 1.0 / numberOfSubRanges;
 
 		NumberGenerator gen = null;
