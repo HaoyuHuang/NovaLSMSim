@@ -1389,6 +1389,7 @@ public class TinyRangeSim {
 	public static final String ZIPFIAN_FILE = "/tmp/zipfian";
 
 	private static LoadImbalanceMetric ZipfianLoadImbalance() {
+		
 		BufferedReader br;
 		try {
 			br = new BufferedReader(new FileReader(new File(ZIPFIAN_FILE)));
