@@ -39,14 +39,42 @@ public class MonteCarloSimulation {
 	}
 
 	public static void main(String[] args) throws Exception {
-		computeRefCount(0.99);
+		computeRefCounts(0.99);
+	}
+
+	public static void computeRefCounts(double zipfConstant) throws Exception {
+		System.out
+				.println("Monte Carlo simulation on constant " + zipfConstant);
+		int maxLoop = 100000000;
+		int nrecords = 10000000;
+		Random rand = new Random();
+		int first_range = nrecords / 10 / 64;
+		int first_server = nrecords / 10;
+		int refs_first_range = 0;
+		int refs_first_server = 0;
+
+		ZipfianGenerator zipf = new ZipfianGenerator(nrecords, zipfConstant,
+				rand);
+		for (int i = 0; i < maxLoop; i++) {
+			int key = zipf.nextValue().intValue();
+			if (key < first_range) {
+				refs_first_range++;
+			}
+			if (key < first_server) {
+				refs_first_server++;
+			}
+		}
+		System.out.println(String.format("%f:%f",
+				(double) refs_first_range / (double) maxLoop,
+				(double) refs_first_server / (double) maxLoop));
+
 	}
 
 	public static void computeRefCount(double zipfConstant) throws Exception {
 		System.out
 				.println("Monte Carlo simulation on constant " + zipfConstant);
 		int maxLoop = 100000000;
-		int nrecords = 10000000;
+		int nrecords = 1000000000;
 		Random rand = new Random();
 
 		int[] refCount = new int[nrecords];
@@ -62,7 +90,6 @@ public class MonteCarloSimulation {
 			bw.write(String.format("%f\n", (double) refCount[i]));
 		}
 		bw.close();
-
 	}
 
 	private static void writeToFile(String filename, int[] refCount)
