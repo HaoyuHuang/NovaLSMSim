@@ -3,17 +3,9 @@ package edu.usc.nova;
 import java.io.BufferedWriter;
 import java.io.File;
 import java.io.FileWriter;
-import java.io.IOException;
-import java.util.Collections;
-import java.util.Comparator;
-import java.util.List;
 import java.util.Random;
 
-import com.google.common.collect.Lists;
-
 import edu.usc.distributions.ZipfianGenerator;
-import edu.usc.workload.KeySizeGenerator;
-import edu.usc.workload.ValueSizeGenerator;
 
 public class MonteCarloSimulation {
 
@@ -91,16 +83,4 @@ public class MonteCarloSimulation {
 		}
 		bw.close();
 	}
-
-	private static void writeToFile(String filename, int[] refCount)
-			throws IOException {
-
-		double sum = 0;
-		for (int i = 0; i < refCount.length; i++) {
-			sum += refCount[i];
-		}
-		double percentile = 0.0;
-
-	}
-
 }

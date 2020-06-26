@@ -20,6 +20,12 @@ import edu.usc.distributions.NumberGenerator;
 import edu.usc.distributions.UniformGenerator;
 import edu.usc.distributions.ZipfianGenerator;
 
+/**
+ * NovaLSM Simulator to evaluate Subranges.
+ * 
+ * @author haoyu
+ *
+ */
 public class TinyRangeSim {
 
 	public static final class LoadImbalanceMetric {

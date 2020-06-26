@@ -21,6 +21,7 @@ import edu.usc.distributions.NumberGenerator;
 import edu.usc.distributions.UniformGenerator;
 import edu.usc.distributions.ZipfianGenerator;
 
+@Deprecated
 public class SubrangeSim {
 
 	public static final class LoadImbalanceMetric {
